@@ -95,7 +95,6 @@ class OnlineStateManager extends Root {
     this._changeToOffline();
   }
 
-
   /**
    * Schedules our next call to _onlineExpired if online or checkOnlineStatus if offline.
    *
@@ -187,6 +186,13 @@ class OnlineStateManager extends Root {
    */
   checkOnlineStatus(callback) {
     this._clearCheck();
+
+    if (!this.socketManager) {
+      if (callback) callback(false);
+    }
+    if (!this.socketManager.client) {
+      if (callback) callback(false);
+    }
     const client = this.socketManager.client;
 
     logger.info('OnlineStateManager: Firing XHR for online check');
@@ -203,7 +209,6 @@ class OnlineStateManager extends Root {
       if (callback) callback(status !== 408);
     });
   }
-
 
   /**
    * On determining that we are offline, handles the state transition and logging.
