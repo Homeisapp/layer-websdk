@@ -189,9 +189,11 @@ class OnlineStateManager extends Root {
 
     if (!this.socketManager) {
       if (callback) callback(false);
+      return;
     }
     if (!this.socketManager.client) {
       if (callback) callback(false);
+      return;
     }
     const client = this.socketManager.client;
 
