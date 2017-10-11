@@ -107,7 +107,7 @@ class SyncManager extends Root {
           this.queue[0].isFiring = false;
         }
       }
-      if (this.receiptQueue.length) {
+      if (this.receiptQueue && this.receiptQueue.length) {
         this.receiptQueue.forEach(syncEvt => (syncEvt.isFiring = false));
       }
     }
@@ -164,7 +164,7 @@ class SyncManager extends Root {
     }
 
     // If we have anything in the receipts queue, fire it
-    if (this.receiptQueue.length) {
+    if (this.receiptQueue && this.receiptQueue.length) {
       this._processNextReceiptRequest();
     }
   }
