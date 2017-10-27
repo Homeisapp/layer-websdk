@@ -458,7 +458,7 @@ class Query extends Root {
       this._appendResults(results, false);
 
     } else if (results.data) {
-      if (results.data.getNonce()) {
+      if (results.data.getNonce) {
         this.client.once('ready', () => {
           this._run();
         });

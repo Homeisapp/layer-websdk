@@ -1096,7 +1096,7 @@ class ClientAuthenticator extends Root {
           if (global.localStorage) localStorage.removeItem(LOCALSTORAGE_KEYS.SESSIONDATA + this.appId);
           this.trigger('deauthenticated');
           if (result.data) {
-            if (result.data.getNonce()) {
+            if (result.data.getNonce) {
               this._authenticate(result.data.getNonce());
             }
           }
@@ -1104,7 +1104,7 @@ class ClientAuthenticator extends Root {
 
         else if (this._lastChallengeTime > Date.now() + ClientAuthenticator.TimeBetweenReauths) {
           if (result.data) {
-            if (result.data.getNonce()) {
+            if (result.data.getNonce) {
               this._authenticate(result.data.getNonce());
             }
           }
