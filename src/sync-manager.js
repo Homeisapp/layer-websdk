@@ -97,13 +97,17 @@ class SyncManager extends Root {
    */
   _onlineStateChange(evt) {
     if (evt.eventName === 'connected') {
-      if (this.queue.length) this.queue[0].returnToOnlineCount++;
+      if (this.queue) {
+        if (this.queue.length) this.queue[0].returnToOnlineCount++;
+      }
       setTimeout(() => this._processNextRequest(), 100);
     } else if (evt.eventName === 'disconnected') {
-      if (this.queue.length) {
-        this.queue[0].isFiring = false;
+      if (this.queue) {
+        if (this.queue.length) {
+          this.queue[0].isFiring = false;
+        }
       }
-      if (this.receiptQueue.length) {
+      if (this.receiptQueue && this.receiptQueue.length) {
         this.receiptQueue.forEach(syncEvt => (syncEvt.isFiring = false));
       }
     }
@@ -135,7 +139,8 @@ class SyncManager extends Root {
         target: requestEvt.target,
       });
     } else {
-      logger.info(`Sync Manager Request PATCH ${requestEvt.target} request ignored; create request still enqueued`, requestEvt.toObject());
+      logger.info(`Sync Manager Request PATCH ${requestEvt.target} request ignored; create request still enqueued`,
+        requestEvt.toObject());
     }
 
     // If its a DELETE request, purge all other requests on that target.
@@ -147,17 +152,19 @@ class SyncManager extends Root {
   }
 
   _processNextRequest(requestEvt) {
-    // Fire the request if there aren't any existing requests already firing
-    if (this.queue.length && !this.queue[0].isFiring) {
-      if (requestEvt) {
-        this.client.dbManager.writeSyncEvents([requestEvt], () => this._processNextStandardRequest());
-      } else {
-        this._processNextStandardRequest();
+    if (this.queue) {
+      // Fire the request if there aren't any existing requests already firing
+      if (this.queue.length && !this.queue[0].isFiring) {
+        if (requestEvt) {
+          this.client.dbManager.writeSyncEvents([requestEvt], () => this._processNextStandardRequest());
+        } else {
+          this._processNextStandardRequest();
+        }
       }
     }
 
     // If we have anything in the receipts queue, fire it
-    if (this.receiptQueue.length) {
+    if (this.receiptQueue && this.receiptQueue.length) {
       this._processNextReceiptRequest();
     }
   }
@@ -258,7 +265,8 @@ class SyncManager extends Root {
     requestEvt.isFiring = true;
     if (!requestEvt.headers) requestEvt.headers = {};
     requestEvt.headers.authorization = 'Layer session-token="' + this.client.sessionToken + '"';
-    logger.info(`Sync Manager XHR Request Firing ${requestEvt.operation} ${requestEvt.target} at ${new Date().toISOString()}`,
+    logger.info(
+      `Sync Manager XHR Request Firing ${requestEvt.operation} ${requestEvt.target} at ${new Date().toISOString()}`,
       requestEvt.toObject());
     xhr(requestEvt._getRequestData(this.client), result => this._xhrResult(result, requestEvt));
   }
@@ -315,7 +323,7 @@ class SyncManager extends Root {
    */
   _handleDeduplicationErrors(result) {
     if (result.data && result.data.id === 'id_in_use' &&
-        result.data.data && result.data.data.id === result.request._getCreateId()) {
+      result.data.data && result.data.data.id === result.request._getCreateId()) {
       result.success = true;
       result.data = result.data.data;
     }
@@ -401,7 +409,6 @@ class SyncManager extends Root {
 
     logger.warn(`Sync Manager ${requestEvt instanceof WebsocketSyncEvent ? 'Websocket' : 'XHR'} ` +
       `${requestEvt.operation} Request on target ${requestEvt.target} has Failed`, requestEvt.toObject());
-
 
     const errState = this._getErrorState(result, requestEvt, this.isOnline());
     logger.warn('Sync Manager Error State: ' + errState);
@@ -660,7 +667,6 @@ class SyncManager extends Root {
     this.receiptQueue = this.receiptQueue.filter(evt => evt.depends.indexOf(request.target) === -1 || evt === request);
   }
 
-
   /**
    * Remove from queue all events that operate upon the deleted object.
    *
@@ -678,7 +684,6 @@ class SyncManager extends Root {
         this._removeRequest(requestEvt, true);
       });
   }
-
 
   destroy() {
     this.queue.forEach(evt => evt.destroy());
@@ -778,7 +783,6 @@ SyncManager.MAX_RETRIES_BEFORE_CORS_ERROR = 3;
  * @static
  */
 SyncManager.MAX_RETRIES = 20;
-
 
 SyncManager._supportedEvents = [
   /**

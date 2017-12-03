@@ -629,10 +629,10 @@ class ClientAuthenticator extends Root {
         }
         this._clientReady();
       })
-      .once('identities:loaded-error', () => {
-        if (!this.user.displayName) this.user.displayName = this.defaultOwnerDisplayName;
-        this._clientReady();
-      });
+        .once('identities:loaded-error', () => {
+          if (!this.user.displayName) this.user.displayName = this.defaultOwnerDisplayName;
+          this._clientReady();
+        });
     }
   }
 
@@ -1095,11 +1095,19 @@ class ClientAuthenticator extends Root {
           this.isReady = false;
           if (global.localStorage) localStorage.removeItem(LOCALSTORAGE_KEYS.SESSIONDATA + this.appId);
           this.trigger('deauthenticated');
-          this._authenticate(result.data.getNonce());
+          if (result.data) {
+            if (result.data.getNonce) {
+              this._authenticate(result.data.getNonce());
+            }
+          }
         }
 
         else if (this._lastChallengeTime > Date.now() + ClientAuthenticator.TimeBetweenReauths) {
-          this._authenticate(result.data.getNonce());
+          if (result.data) {
+            if (result.data.getNonce) {
+              this._authenticate(result.data.getNonce());
+            }
+          }
         }
       }
     }
