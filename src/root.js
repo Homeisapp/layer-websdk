@@ -486,7 +486,7 @@ class Root extends EventClass {
   _triggerAsync(...args) {
     const computedArgs = this._getTriggerArgs(...args);
     if (!this._delayedTriggers) {
-      return;
+      this._delayedTriggers = [];
     }
     this._delayedTriggers.push(computedArgs);
 
