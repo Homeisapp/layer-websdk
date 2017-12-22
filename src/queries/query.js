@@ -457,14 +457,10 @@ class Query extends Root {
       if (results.data.length < pageSize || results.data.length === this.totalSize) this.pagedToEnd = true;
       this._appendResults(results, false);
 
-    } else if (results.data) {
-      if (results.data.getNonce) {
-        this.client.once('ready', () => {
-          this._run();
-        });
-      } else {
-        this.trigger('error', { error: results.data });
-      }
+    } else if (results.data && results.data.getNonce && results.data.getNonce()) {
+      this.client.once('ready', () => {
+        this._run();
+      });
     } else {
       this.trigger('error', { error: results.data });
     }
