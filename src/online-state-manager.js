@@ -187,14 +187,11 @@ class OnlineStateManager extends Root {
   checkOnlineStatus(callback) {
     this._clearCheck();
 
-    if (!this.socketManager) {
+    if (!this.socketManager || !this.socketManager.client) {
       if (callback) callback(false);
       return;
     }
-    if (!this.socketManager.client) {
-      if (callback) callback(false);
-      return;
-    }
+
     const client = this.socketManager.client;
 
     logger.info('OnlineStateManager: Firing XHR for online check');

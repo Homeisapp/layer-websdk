@@ -97,15 +97,13 @@ class SyncManager extends Root {
    */
   _onlineStateChange(evt) {
     if (evt.eventName === 'connected') {
-      if (this.queue) {
-        if (this.queue.length) this.queue[0].returnToOnlineCount++;
+      if (this.queue && this.queue.length) {
+        this.queue[0].returnToOnlineCount++;
       }
       setTimeout(() => this._processNextRequest(), 100);
     } else if (evt.eventName === 'disconnected') {
-      if (this.queue) {
-        if (this.queue.length) {
+      if (this.queue && this.queue.length) {
           this.queue[0].isFiring = false;
-        }
       }
       if (this.receiptQueue && this.receiptQueue.length) {
         this.receiptQueue.forEach(syncEvt => (syncEvt.isFiring = false));
