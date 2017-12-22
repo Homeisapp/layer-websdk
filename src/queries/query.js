@@ -480,6 +480,7 @@ class Query extends Root {
     // For all results, register them with the client
     // If already registered with the client, properties will be updated as needed
     // Database results rather than server results will arrive already registered.
+    results.data = results.data || [];
     results.data.forEach((item) => {
       if (!(item instanceof Root)) this.client._createObject(item);
     });
