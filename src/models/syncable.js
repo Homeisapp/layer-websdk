@@ -58,7 +58,7 @@ class Syncable extends Root {
       options.method !== 'POST' && options.method !== 'GET' &&
       this.syncState === Constants.SYNC_STATE.NEW) return this;
 
-    if (!options.url.match(/^http(s):\/\//)) {
+    if (!options.url.match(/^https?:\/\//)) {
       if (options.url && !options.url.match(/^(\/|\?)/)) options.url = '/' + options.url;
       if (!options.sync) options.url = this.url + options.url;
     }
@@ -201,6 +201,7 @@ class Syncable extends Root {
    * @private
    */
   _load() {
+    if (this.isDestroyed) return;
     this.syncState = SYNC_STATE.LOADING;
     this._xhr({
       method: 'GET',

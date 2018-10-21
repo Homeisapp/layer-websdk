@@ -10,6 +10,21 @@
  * to the `message` event if they want richer event information than is available
  * through the layer.Client class.
  *
+ * Backoff will retry the connection after:
+ * * 1.6 seconds
+ * * 3.2 seconds
+ * * 12.8 seconds
+ * * 25.6 seconds
+ * * 51 seconds
+ * * ….
+ * * 8 minutes
+ *
+ * etc… each of those retries has randomized jitter between 0 and 50% of the delay (so 1.6 seconds delay is * actually anywhere between 1.6 - 2.4 seconds)
+ *
+ * Websocket reconnects are only performed after a REST API call that validates we are online and able to reach layer’s servers; this greatly reduces the likelihood of failure caused by networking issues.
+ *
+ * There is no time at which it simply gives up and stops retrying; however once ever 8 minutes (8-12 minutes due to 50% jitter) is slow enough that it shouldn’t contribute to rate limiting (unless there are a massive number of tabs involved)
+ *
  * @class  layer.Websockets.SocketManager
  * @extends layer.Root
  * @private
@@ -46,13 +61,17 @@ class SocketManager extends Root {
 
     // If the client is authenticated, start it up.
     if (this.client.isAuthenticated && this.client.onlineManager.isOnline) {
+      this.trigger('connecting', { from: 'constructor', why: 'initialization' });
       this.connect();
     }
 
     this.client.on('online', this._onlineStateChange, this);
 
     // Any time the Client triggers a ready event we need to reconnect.
-    this.client.on('authenticated', this.connect, this);
+    this.client.on('authenticated', () => {
+      this.trigger('connecting', { from: 'constructor', why: 'authenticated' });
+      this.connect();
+    }, this);
 
     this._lastTimestamp = Date.now();
   }
@@ -67,8 +86,7 @@ class SocketManager extends Root {
   _reset() {
     this._lastTimestamp = 0;
     this._lastDataFromServerTimestamp = 0;
-    this._lastCounter = null;
-    this._hasCounter = false;
+    this._hasZeroCounter = false;
 
     this._needsReplayFrom = null;
   }
@@ -84,9 +102,11 @@ class SocketManager extends Root {
   _onlineStateChange(evt) {
     if (!this.client.isAuthenticated) return;
     if (evt.isOnline) {
+      this.trigger('connecting', { from: '_onlineStateChange', why: 'detect change to online' });
       this._reconnect(evt.reset);
     } else {
       logger.info('Websocket closed due to ambigious connection state');
+      this.trigger('disconnecting', { from: '_onlineStateChange', why: 'detect change to offline' });
       this.close();
     }
   }
@@ -135,15 +155,14 @@ class SocketManager extends Root {
    * @param  {layer.SyncEvent} evt - Ignored parameter
    */
   connect(evt) {
-    if (this.client.isDestroyed || !this.client.isOnline) return;
+    if (this.client.isDestroyed || !this.client.isOnline || !this.client._wantsToBeConnected) return;
     if (this._socket) return this._reconnect();
 
     this._closing = false;
 
-    this._lastCounter = -1;
-
     // Get the URL and connect to it
-    const url = `${this.client.websocketUrl}/?session_token=${this.client.sessionToken}`;
+    const url = `${this.client.websocketUrl}/?session_token=${this.client.sessionToken}&client-id=${this.client._tabId}` +
+    `&layer-xdk-version=${this.client.constructor.version}`;
 
     logger.info('Websocket Connecting');
 
@@ -228,10 +247,12 @@ class SocketManager extends Root {
     this._clearConnectionFailed();
     if (this._isOpen()) {
       this._lostConnectionCount = 0;
+      this._lastSkippedCounter = 0;
       this.isOpen = true;
       this.trigger('connected');
       logger.debug('Websocket Connected');
-      if (this._hasCounter && this._lastTimestamp) {
+      if (this._hasZeroCounter && this._lastTimestamp) {
+        this.trigger('replaying-events', { from: 'resync', why: 'reconnected' });
         this.resync(this._lastTimestamp);
       } else {
         this._enablePresence();
@@ -270,6 +291,7 @@ class SocketManager extends Root {
     if (!this.isOpen) {
       this._removeSocketEvents();
       this._lostConnectionCount++;
+      this.trigger('schedule-reconnect', { from: '_onError', why: 'websocket failed to open' });
       this._scheduleReconnect();
     } else {
       this._onSocketClose();
@@ -409,6 +431,27 @@ class SocketManager extends Root {
    * @param  {Boolean}   success
    */
   _replayEventsComplete(timestamp, callback, success) {
+    if (SocketManager.ENABLE_REPLAY_RETRIES) {
+      this._replayEventsCompleteWithRetries(timestamp, callback, success);
+    } else {
+      this._replayEventsCompleteWithoutRetries(timestamp, callback, success);
+    }
+  }
+
+
+  _replayEventsCompleteWithoutRetries(timestamp, callback, success) {
+    if (success) {
+      this._replayRetryCount = 0;
+      this._needsReplayFrom = null;
+      logger.info('Websocket replay complete');
+      if (callback) callback();
+    } else {
+      this._needsReplayFrom = null;
+      logger.warn('Websocket Event.replay has failed');
+    }
+  }
+
+  _replayEventsCompleteWithRetries(timestamp, callback, success) {
     if (success) {
       this._replayRetryCount = 0;
 
@@ -424,6 +467,7 @@ class SocketManager extends Root {
         logger.info('Websocket replay partially complete');
         const t = this._needsReplayFrom;
         this._needsReplayFrom = null;
+        this.trigger('replaying-events', { from: '_replayEventsComplete', why: '_needsReplayFrom: ' + t });
         this._replayEvents(t);
       }
     }
@@ -433,11 +477,16 @@ class SocketManager extends Root {
     // 0.4 seconds - 12.8 seconds, and then stops retrying.
     else if (this._replayRetryCount < 8) {
       const maxDelay = 20;
-      const delay = Utils.getExponentialBackoffSeconds(maxDelay, Math.min(15, this._replayRetryCount + 2));
-      logger.info('Websocket replay retry in ' + delay + ' seconds');
-      setTimeout(() => this._replayEvents(timestamp), delay * 1000);
+      const backoffCounter = Math.min(this._replayRetryCount + 4, 11);
+      const delay = Utils.getExponentialBackoffSeconds(maxDelay, backoffCounter);
+      logger.info('Websocket replay retry in ' + delay + ' ms');
+      setTimeout(() => {
+        this.trigger('replaying-events', { from: '_replayEventsComplete', why: '_replayRetryCount: ' + this._replayRetryCount });
+        this._replayEvents(timestamp);
+      }, delay * 1000);
       this._replayRetryCount++;
     } else {
+      this._needsReplayFrom = null;
       logger.error('Websocket Event.replay has failed');
     }
   }
@@ -517,14 +566,14 @@ class SocketManager extends Root {
     this._lostConnectionCount = 0;
     try {
       const msg = JSON.parse(evt.data);
-      const skippedCounter = this._lastCounter + 1 !== msg.counter;
-      this._hasCounter = true;
-      this._lastCounter = msg.counter;
+      const hasZero = msg.counter === 0;
+      const isNewConnection = !this._hasZeroCounter && hasZero;
+      this._hasZeroCounter = this._hasZeroCounter || hasZero;
       this._lastDataFromServerTimestamp = Date.now();
 
-      // If we've missed a counter, replay to get; note that we had to update _lastCounter
-      // for replayEvents to work correctly.
-      if (skippedCounter) {
+      // If we're seeing counter of 0 for the second time, our connection has been reset
+      if (hasZero && !isNewConnection) {
+        this.trigger('replaying-events', { from: '_onMessage', why: 'Zero Counter' });
         this.resync(this._lastTimestamp);
       } else {
         this._lastTimestamp = new Date(msg.timestamp).getTime();
@@ -601,6 +650,7 @@ class SocketManager extends Root {
   }
 
   destroy() {
+    this.trigger('disconnecting', { from: 'destroy', why: 'client is being destroyed' });
     this.close();
     if (this._nextPingId) clearTimeout(this._nextPingId);
     super.destroy();
@@ -617,6 +667,7 @@ class SocketManager extends Root {
     logger.debug('Websocket closed');
     this.isOpen = false;
     if (!this._closing) {
+      this.trigger('schedule-reconnect', { from: '_onSocketClose', why: 'Socket closed' });
       this._scheduleReconnect();
     }
 
@@ -660,8 +711,10 @@ class SocketManager extends Root {
   _scheduleReconnect() {
     if (this.isDestroyed || !this.client.isOnline || !this.client.isAuthenticated) return;
 
-    const delay = Utils.getExponentialBackoffSeconds(this.maxDelaySecondsBetweenReconnect, Math.min(15, this._lostConnectionCount));
-    logger.debug('Websocket Reconnect in ' + delay + ' seconds');
+    const backoffCounter = Math.min(this._lostConnectionCount + 4, 13);
+    const delay = Utils.getExponentialBackoffSeconds(this.maxDelaySecondsBetweenReconnect, backoffCounter);
+    this.trigger('scheduling-reconnect', { counter: backoffCounter, delay });
+    logger.warn('Websocket Reconnect in ' + delay + ' seconds');
     if (!this._reconnectId) {
       this._reconnectId = setTimeout(() => {
         this._reconnectId = 0;
@@ -680,31 +733,21 @@ class SocketManager extends Root {
   _validateSessionBeforeReconnect() {
     if (this.isDestroyed || !this.client.isOnline || !this.client.isAuthenticated) return;
 
-    const maxDelay = this.maxDelaySecondsBetweenReconnect * 1000;
-    const diff = Date.now() - this._lastValidateSessionRequest - maxDelay;
-    if (diff < 0) {
-      // This is identical to whats in _scheduleReconnect and could be cleaner
-      if (!this._reconnectId) {
-        this._reconnectId = setTimeout(() => {
-          this._reconnectId = 0;
-          this._validateSessionBeforeReconnect();
-        }, Math.abs(diff) + 1000);
+    this.client.xhr({
+      url: '/?action=validateConnectionForWebsocket&client=' + this.client.constructor.version,
+      method: 'GET',
+      sync: false,
+    }, (result) => {
+      if (result.success) {
+        this.trigger('connecting', { from: '_validateSessionBeforeReconnect', why: 'has valid session token' });
+        this.connect();
+      } else if (result.status === 401) {
+        // client-authenticator.js captures this state and handles it; `connect()` will be called once reauthentication completes
+      } else {
+        this.trigger('schedule-reconnect', { from: '_validateSessionBeforeReconnect', why: 'Unexpected error: ' + result.status });
+        this._scheduleReconnect();
       }
-    } else {
-      this._lastValidateSessionRequest = Date.now();
-      this.client.xhr({
-        url: '/?action=validateConnectionForWebsocket&client=' + this.client.constructor.version,
-        method: 'GET',
-        sync: false,
-      }, (result) => {
-        if (result.success) this.connect();
-        if (result.status === 401) {
-          // client-authenticator.js captures this state and handles it; `connect()` will be called once reauthentication completes
-        } else {
-          this._scheduleReconnect();
-        }
-      });
-    }
+    });
   }
 }
 
@@ -730,8 +773,7 @@ SocketManager.prototype._connectionFailedId = 0;
 
 SocketManager.prototype._lastTimestamp = 0;
 SocketManager.prototype._lastDataFromServerTimestamp = 0;
-SocketManager.prototype._lastCounter = null;
-SocketManager.prototype._hasCounter = false;
+SocketManager.prototype._hasZeroCounter = false;
 
 SocketManager.prototype._needsReplayFrom = null;
 
@@ -739,12 +781,6 @@ SocketManager.prototype._replayRetryCount = 0;
 
 SocketManager.prototype._lastGetCounterRequest = 0;
 SocketManager.prototype._lastGetCounterId = 0;
-
-/**
- * Time in miliseconds since the last call to _validateSessionBeforeReconnect
- * @type {Number}
- */
-SocketManager.prototype._lastValidateSessionRequest = 0;
 
 /**
  * Frequency with which the websocket checks to see if any websocket notifications
@@ -759,7 +795,7 @@ SocketManager.prototype.pingFrequency = 30000;
  *
  * @type {Number}
  */
-SocketManager.prototype.maxDelaySecondsBetweenReconnect = 30;
+SocketManager.prototype.maxDelaySecondsBetweenReconnect = 8 * 60;
 
 /**
  * The Client that owns this.
@@ -786,6 +822,17 @@ SocketManager.prototype._closing = false;
  */
 SocketManager.prototype._lostConnectionCount = 0;
 
+SocketManager.IGNORE_SKIPPED_COUNTER_INTERVAL = 60000; // 60 seconds
+
+/**
+ * If enabled, a failure in replaying missed events will be retried. Otherwise,
+ * a failure to replay missed events will accept that some data may have been lost this session,
+ * but will be available next time queries refire.
+ *
+ * @static
+ * @property {Boolean} [ENABLE_REPLAY_RETRIES=false]
+ */
+SocketManager.ENABLE_REPLAY_RETRIES = false;
 
 SocketManager._supportedEvents = [
   /**
@@ -821,6 +868,62 @@ SocketManager._supportedEvents = [
    * @event replay-begun
    */
   'synced',
+
+  /**
+   * Websocket connection request is about to be made
+   * @event connecting
+   */
+  'connecting',
+
+   /**
+   * Websocket is being closed
+   *
+   * @event disconnecting
+   * @param {Layer.Core.Event} evt
+   * @param {String} evt.from  Describes where the call to scheduleReconnect originated from
+   * @param {String} evt.why   Provides detail on why the call was made from there
+   */
+  'disconnecting',
+
+  /**
+   * Websocket Event.replay is about to be issued
+   * @event replaying-events
+   * @param {Layer.Core.Event} evt
+   * @param {String} evt.from  Describes where the call to Event.replay originated from
+   * @param {String} evt.why   Provides detail on why the call was made from there
+   */
+  'replaying-events',
+
+  /**
+   * scheduleReconnect has been called
+   *
+   * @event scheduling-reconnect
+   * @param {Layer.Core.Event} evt
+   * @param {Number} evt.counter
+   * @param {Number} evt.delay
+   */
+  'scheduling-reconnect',
+
+  /**
+   * Websocket reconnect has been scheduled
+   *
+   * @event schedule-reconnect
+   * @param {Layer.Core.Event} evt
+   * @param {String} evt.from  Describes where the call to scheduleReconnect originated from
+   * @param {String} evt.why   Provides detail on why the call was made from there
+   */
+  'schedule-reconnect',
+
+  /**
+   * Websocket ignored skipped counters without checking for missed websocket data
+   *
+   * @event ignore-skipped-counter
+   * @param {Layer.Core.Event} evt
+   * @param {String} evt.from  Describes where the call to scheduleReconnect originated from
+   * @param {String} evt.why   Provides detail on why the call was made from there
+   */
+  'ignore-skipped-counter',
+
 ].concat(Root._supportedEvents);
 Root.initClass.apply(SocketManager, [SocketManager, 'SocketManager']);
 module.exports = SocketManager;
