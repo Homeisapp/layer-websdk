@@ -201,6 +201,7 @@ class Syncable extends Root {
    * @private
    */
   _load() {
+      if (this.isDestroyed) return;
     this.syncState = SYNC_STATE.LOADING;
     this._xhr({
       method: 'GET',
