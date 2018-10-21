@@ -1,5 +1,76 @@
 # Web SDK Change Log
 
+## 3.4.16
+
+Failure to replay missed events when reconnecting the websocket will no longer start a retry loop.  If it fails, the client will get missed events the next time the query refires rather than as a live update.  This behavior can be changed back to older behavior by setting the SocketManager's static property:
+
+```javascript
+layer.Websockets.SocketManager.ENABLE_REPLAY_RETRIES = true;
+```
+
+
+## 3.4.15
+
+* Address issue where websocket packets arrive out of order, and result in resync calls
+
+## 3.4.14
+
+* Fixes bug in support for `isPersistenceEnabled` that causes Messages not to be read correctly from IndexedDB
+
+## 3.4.13
+
+* Adds a `client.disconnect()` method that closes the websocket connection, and stops pinging to see if Layer's servers are reachable
+* Adds a `client.reconnect()` method that restores services after a `client.disconnect()` call
+
+## 3.4.12
+
+Updates recovery and network detection code:
+
+* Online Detection now makes a final ping to the server before declaring client to be offline; previously did the ping after going offline; going back online short circuited the 10 minute reconnect logic on websockets
+* Websocket reconnect logic now uses exponential backoff until it hits between 8-12 minutes between retry; primarily to handle case of 429, 503 and other server problem
+* IE11 test environment now chokes on unit tests against https://huh.com; also https://localhost; updates now support tests against http://localhost
+
+## 3.4.11
+
+Fixes Websocket reconnect logic that results in a reconnect every 10 minutes.
+
+## 3.4.10
+
+Changes exponential backoff jitter to vary more widely
+
+## 3.4.9
+
+Exponential backoff for websocket reconnects changed from a max of 30 seconds delay to a max of 10 minutes delay.
+
+## 3.4.8
+
+Better tracking of requests:
+
+* REST API requests and Websocket connections now identify the version and TabID of the request
+* TabID differentiates between different browser tabs (or reloads of the page) vs just reconnects from the same client
+
+## 3.4.7
+
+Fixes aimed at websocket stability:
+
+* Changes exponential backoff for websocket reconnect and Replaying of missed events to start at a higher interval
+* Adds client events for debugging:
+  * websocket:connecting
+  * websocket:disconnecting
+  * websocket:replaying-events
+  * websocket:scheduling-reconnect
+  * websocket:schedule-reconnect
+  * websocket:ignore-skipped-counter
+* If multiple anomolies in a websocket connection will not attempt recovery until frequency of such errors is less than once per minute
+
+## 3.4.6
+
+* Fixes missed case for release `v3.4.5`
+
+## 3.4.5
+
+* Fixes bug in `Identity.metadata`; this is now _always_ an Object even when there is no metadata
+
 ## 3.4.4
 
 * Fixes mismatch between Identity ID and User ID when User ID contains a `*` character

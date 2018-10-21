@@ -47,6 +47,8 @@ class Identity extends Syncable {
 
     super(options);
 
+    if (!this.metadata) this.metadata = {};
+
     // The - is here to prevent Root from generating a UUID for an ID.  ID must map to UserID
     // and can't be randomly generated.  This only occurs from Platform API sending with `sender.name` and no identity.
     if (this.id === '-') this.id = '';
@@ -130,7 +132,7 @@ class Identity extends Syncable {
       this._updateValue(['emailAddress'], identity.email_address);
       this._updateValue(['lastName'], identity.last_name);
       this._updateValue(['firstName'], identity.first_name);
-      this._updateValue(['metadata'], identity.metadata);
+      this._updateValue(['metadata'], identity.metadata || {});
       this._updateValue(['publicKey'], identity.public_key);
       this._updateValue(['phoneNumber'], identity.phone_number);
       this.isFullIdentity = true;

@@ -5,6 +5,10 @@
 
 The Layer Web SDK is a JavaScript library for adding chat services to your web application. For detailed documentation, tutorials and guides please visit our [Web SDK documentation](https://docs.layer.com/sdk/web-3.0/install).
 
+## Just Starting?
+
+Use our new XDK! The XDK enables a richer messaging experience and new features will be added there. See the repository at [https://github.com/layerhq/web-xdk](https://github.com/layerhq/web-xdk). Don't worry, Layer Web SDK is still supported.
+
 ## Supported Browsers
 
 * IE 11 and Edge

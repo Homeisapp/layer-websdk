@@ -33,7 +33,7 @@ function deleteTables(done) {
         requests = jasmine.Ajax.requests;
         client = new layer.Client({
             appId: appId,
-            url: "https://huh.com",
+            url: "http://localhost:9753",
             isTrustedDevice: true
         });
         client.sessionToken = "sessionToken";
@@ -277,7 +277,7 @@ function deleteTables(done) {
           });
           expect(identity._triggerAsync).toHaveBeenCalledWith("identities:change", {
             property: "metadata",
-            oldValue: null,
+            oldValue: {},
             newValue: {hey: "ho"}
           });
           expect(identity._triggerAsync).toHaveBeenCalledWith("identities:change", {

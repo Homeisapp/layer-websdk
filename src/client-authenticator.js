@@ -94,7 +94,12 @@ class ClientAuthenticator extends Root {
     this.socketManager = new SocketManager({
       client: this,
     });
-
+    this.socketManager.on('connecting', evt => this.trigger('websocket:connecting'));
+    this.socketManager.on('disconnecting', evt => this.trigger('websocket:disconnecting', { from: evt.from, why: evt.why }));
+    this.socketManager.on('replaying-events', evt => this.trigger('websocket:replaying-events', { from: evt.from, why: evt.why }));
+    this.socketManager.on('schedule-reconnect', evt => this.trigger('websocket:schedule-reconnect', { from: evt.from, why: evt.why }));
+    this.socketManager.on('scheduling-reconnect', evt => this.trigger('websocket:scheduling-reconnect', { counter: evt.counter, delay: evt.delay }));
+    this.socketManager.on('ignore-skipped-counter', evt => this.trigger('websocket:ignore-skipped-counter', { from: evt.from, why: evt.why }));
     this.socketChangeManager = new WebsocketChangeManager({
       client: this,
       socketManager: this.socketManager,
@@ -255,6 +260,7 @@ class ClientAuthenticator extends Root {
     this.isConnected = false;
     this._lastChallengeTime = 0;
     this._wantsToBeAuthenticated = true;
+    this._wantsToBeConnected = true;
     this.user = null;
     this.onlineManager.start();
     if (!this.isTrustedDevice || !userId || this._isPersistedSessionsDisabled() || this._hasUserIdChanged(userId)) {
@@ -315,6 +321,7 @@ class ClientAuthenticator extends Root {
     this.user = null;
     this._lastChallengeTime = 0;
     this._wantsToBeAuthenticated = true;
+    this._wantsToBeConnected = true;
     if (!userId || !sessionToken) throw new Error(LayerError.dictionary.sessionAndUserRequired);
     if (!this.isTrustedDevice || this._isPersistedSessionsDisabled() || this._hasUserIdChanged(userId)) {
       this._clearStoredData();
@@ -341,6 +348,29 @@ class ClientAuthenticator extends Root {
       }
     }, 1);
     return this;
+  }
+
+  reconnect() {
+    if (!this.isAuthenticated) {
+      if (this.sessionToken && this.user && this.user.userId) {
+        this.connectWithSession(this.user.userId, this.sessionToken);
+      } else {
+        this.connect();
+      }
+      return;
+    }
+
+    this._wantsToBeConnected = true;
+    this._clientReady();
+    this.onlineManager.start();
+    this.socketManager.connect();
+  }
+
+  disconnect() {
+    this.isReady = false;
+    this._wantsToBeConnected = false;
+    this.socketManager.close();
+    this.onlineManager.stop();
   }
 
   /**
@@ -665,6 +695,8 @@ class ClientAuthenticator extends Root {
    */
   _clientReady() {
     if (!this.isReady) {
+      this._wantsToBeConnected = true;
+      this._wantsToBeAuthenticated = true;
       this.isReady = true;
       this.trigger('ready');
     }
@@ -695,6 +727,7 @@ class ClientAuthenticator extends Root {
    */
   logout(callback) {
     this._wantsToBeAuthenticated = false;
+    this._wantsToBeConnected = true;
     let callbackCount = 1,
       counter = 0;
     if (this.isAuthenticated) {
@@ -901,7 +934,7 @@ class ClientAuthenticator extends Root {
    * @param {layer.LayerEvent} evt
    */
   _handleOnlineChange(evt) {
-    if (!this._wantsToBeAuthenticated) return;
+    if (!this._wantsToBeAuthenticated || !this._wantsToBeConnected) return;
     const duration = evt.offlineDuration;
     const isOnline = evt.eventName === 'connected';
     const obj = { isOnline };
@@ -1031,7 +1064,7 @@ class ClientAuthenticator extends Root {
    */
   _xhrFixRelativeUrls(url) {
     let result = url;
-    if (url.indexOf('https://') === -1) {
+    if (url.indexOf('https://') === -1 && url.indexOf('http://') === -1) {
       if (url[0] === '/') {
         result = this.url + url;
       } else {
@@ -1066,6 +1099,9 @@ class ClientAuthenticator extends Root {
     if (!headers.accept) headers.accept = ACCEPT;
 
     if (!headers['content-type']) headers['content-type'] = 'application/json';
+
+    if (!headers['layer-xdk-version']) headers['layer-xdk-version'] = this.constructor.version;
+    if (!headers['client-id']) headers['client-id'] = this._tabId;
   }
 
   /**
@@ -1168,6 +1204,17 @@ ClientAuthenticator.prototype.isReady = false;
  * @readonly
  */
 ClientAuthenticator.prototype._wantsToBeAuthenticated = false;
+
+/**
+ * State variable; indicates if the WebSDK thinks that the app WANTS to be WebSocket connected.
+ *
+ * An app wants to be connected if it has called `connect()` or `connectWithSession()` or `reconnect()`
+ * and has not called `logout()` or `disconnect()`.
+ *
+ * @type {boolean}
+ * @readonly
+ */
+ClientAuthenticator.prototype._wantsToBeConnected = false;
 
 /**
  * If presence is enabled, then your presence can be set/restored.
@@ -1517,6 +1564,63 @@ ClientAuthenticator._supportedEvents = [
    * @private
    */
   'websocket:operation',
+
+  /**
+   * Websocket connection request is about to be made
+   * @event websocket:connecting
+   */
+  'websocket:connecting',
+
+  /**
+   * Websocket is being closed
+   *
+   * @event websocket:disconnecting
+   * @param {Layer.Core.Event} evt
+   * @param {String} evt.from  Describes where the call to scheduleReconnect originated from
+   * @param {String} evt.why   Provides detail on why the call was made from there
+   */
+  'websocket:disconnecting',
+
+  /**
+   * Websocket Event.replay is about to be issued
+   * @event websocket:replaying-events
+   * @param {Layer.Core.Event} evt
+   * @param {String} evt.from  Describes where the call to Event.replay originated from
+   * @param {String} evt.why   Provides detail on why the call was made from there
+   */
+  'websocket:replaying-events',
+
+  /**
+   * scheduleReconnect has been called
+   *
+   * @event websocket:scheduling-reconnect
+   * @param {Layer.Core.Event} evt
+   * @param {Number} evt.counter
+   * @param {Number} evt.delay
+   */
+  'websocket:scheduling-reconnect',
+
+  /**
+   * Websocket reconnect has been scheduled
+   *
+   * @event websocket:schedule-reconnect
+   * @param {Layer.Core.Event} evt
+   * @param {String} evt.from  Describes where the call to scheduleReconnect originated from
+   * @param {String} evt.why   Provides detail on why the call was made from there
+   */
+  'websocket:schedule-reconnect',
+
+  /**
+   * Websocket ignored skipped counters without checking for missed websocket data
+   *
+   * @event websocket:ignore-skipped-counter
+   * @param {Layer.Core.Event} evt
+   * @param {String} evt.from  Describes where the call to scheduleReconnect originated from
+   * @param {String} evt.why   Provides detail on why the call was made from there
+   */
+  'websocket:ignore-skipped-counter',
+
+
 ].concat(Root._supportedEvents);
 
 Root.initClass.apply(ClientAuthenticator, [ClientAuthenticator, 'ClientAuthenticator']);
