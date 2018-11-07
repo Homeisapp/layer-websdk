@@ -1,5 +1,33 @@
 # Web SDK Change Log
 
+## 3.4.17
+
+Addresses scenario where browser considers websocket to have been successfully connected, but no data is flowing.  This use case manifests in one of two ways:
+  * Websocket connections whose packets just show `(Opcode -1)` and then closes and a new websocket is opened
+  * Websocket connections where requests are made but no packets are received, neither responses nor change events.
+
+Both of these cases are now treated as failures to connect, resulting in reconnect logic that follows exponential backoff.
+
+Change List:
+
+* New paths for websocket manager added that use exponential backoff for reconnect logic
+* Extends the time before a request is considered to have failed from 15 seconds to 45 seconds (addresses case where requests are made but no responses received)
+* The Websocket `connected` event now comes with a `verified` parameter:
+  * `verified: false`: Websocket connection is opened according to the browser
+  * `verified: true`: Websocket connection has just received data; we now know the connection to be valid
+
+```javascript
+client.socketManager.on('connected', (evt) => {
+  if (evt.verified) {
+    alert("Connection established");
+  } else {
+    alert("Connection probably established");
+  }
+});
+```
+
+Note that a `verified: false` will always come before a `verified: true`, but if something is wrong with the connection, `verified: true` will not trigger.
+
 ## 3.4.16
 
 Failure to replay missed events when reconnecting the websocket will no longer start a retry loop.  If it fails, the client will get missed events the next time the query refires rather than as a live update.  This behavior can be changed back to older behavior by setting the SocketManager's static property:
