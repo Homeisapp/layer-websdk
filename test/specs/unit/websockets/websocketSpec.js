@@ -341,9 +341,8 @@ describe("The Websocket Socket Manager Class", function() {
             });
         });
 
-        it("Should call resync if there is a Zero counter already seen", function() {
+        it("Should call resync if there is a prior message seen", function() {
             spyOn(websocketManager, "_isOpen").and.returnValue(true);
-            websocketManager._hasZeroCounter = true;
             websocketManager._lastTimestamp = Date.now();
             spyOn(websocketManager, "resync");
 
@@ -354,12 +353,14 @@ describe("The Websocket Socket Manager Class", function() {
             expect(websocketManager.resync).toHaveBeenCalledWith(websocketManager._lastTimestamp);
         });
 
-        it("Should skip resync and call if there has not been a zero counter seen", function() {
+        it("Should skip resync and call if there has not been a prior message seen", function() {
+            // Pretest
+            expect(websocketManager._lastTimestamp).toBe(0);
+
             spyOn(websocketManager, "_isOpen").and.returnValue(true);
-            websocketManager._hasZeroCounter = false;
-            websocketManager._lastTimestamp = Date.now();
             spyOn(websocketManager, "resync");
             spyOn(websocketManager, "_reschedulePing");
+            spyOn(websocketManager, "_enablePresence");
 
             // Run
             websocketManager._onOpen();
@@ -367,6 +368,7 @@ describe("The Websocket Socket Manager Class", function() {
             // Posttest
             expect(websocketManager.resync).not.toHaveBeenCalled();
             expect(websocketManager._reschedulePing).toHaveBeenCalledWith();
+            expect(websocketManager._enablePresence).toHaveBeenCalledWith();
         });
 
         it("Should call _clearConnectionFailed", function() {

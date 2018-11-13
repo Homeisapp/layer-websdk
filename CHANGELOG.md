@@ -1,5 +1,9 @@
 # Web SDK Change Log
 
+## 3.4.18
+
+* Tweaks prior fix to prevent initial call to `Event.replay`
+
 ## 3.4.17
 
 Addresses scenario where browser considers websocket to have been successfully connected, but no data is flowing.  This use case manifests in one of two ways:

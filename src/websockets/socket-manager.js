@@ -73,7 +73,7 @@ class SocketManager extends Root {
       this.connect();
     }, this);
 
-    this._lastTimestamp = Date.now();
+    this._lastTimestamp = 0;
   }
 
   /**
