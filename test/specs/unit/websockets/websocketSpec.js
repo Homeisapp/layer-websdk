@@ -315,10 +315,11 @@ describe("The Websocket Socket Manager Class", function() {
             expect(websocketManager.isOpen).toEqual(false);
         });
 
-        it("Should reset _lostConnectionCount", function() {
+        it("Should not reset _lostConnectionCount", function() {
             spyOn(websocketManager, "_isOpen").and.returnValue(true);
+            websocketManager._lostConnectionCount = 5;
             websocketManager._onOpen();
-            expect(websocketManager._lostConnectionCount).toEqual(0);
+            expect(websocketManager._lostConnectionCount).toEqual(5);
         });
 
         it("Should set isOpen", function() {
@@ -335,12 +336,13 @@ describe("The Websocket Socket Manager Class", function() {
             websocketManager._onOpen();
 
             // Posttest
-            expect(websocketManager.trigger).toHaveBeenCalledWith("connected");
+            expect(websocketManager.trigger).toHaveBeenCalledWith("connected", {
+                verified: false
+            });
         });
 
-        it("Should call resync if there is a Zero counter already seen", function() {
+        it("Should call resync if there is a prior message seen", function() {
             spyOn(websocketManager, "_isOpen").and.returnValue(true);
-            websocketManager._hasZeroCounter = true;
             websocketManager._lastTimestamp = Date.now();
             spyOn(websocketManager, "resync");
 
@@ -351,12 +353,14 @@ describe("The Websocket Socket Manager Class", function() {
             expect(websocketManager.resync).toHaveBeenCalledWith(websocketManager._lastTimestamp);
         });
 
-        it("Should skip resync and call if there has not been a zero counter seen", function() {
+        it("Should skip resync and call if there has not been a prior message seen", function() {
+            // Pretest
+            expect(websocketManager._lastTimestamp).toBe(0);
+
             spyOn(websocketManager, "_isOpen").and.returnValue(true);
-            websocketManager._hasZeroCounter = false;
-            websocketManager._lastTimestamp = Date.now();
             spyOn(websocketManager, "resync");
             spyOn(websocketManager, "_reschedulePing");
+            spyOn(websocketManager, "_enablePresence");
 
             // Run
             websocketManager._onOpen();
@@ -364,6 +368,7 @@ describe("The Websocket Socket Manager Class", function() {
             // Posttest
             expect(websocketManager.resync).not.toHaveBeenCalled();
             expect(websocketManager._reschedulePing).toHaveBeenCalledWith();
+            expect(websocketManager._enablePresence).toHaveBeenCalledWith();
         });
 
         it("Should call _clearConnectionFailed", function() {
@@ -417,6 +422,30 @@ describe("The Websocket Socket Manager Class", function() {
 
             // Posttest
             expect(websocketManager._lostConnectionCount).toEqual(6);
+        });
+
+        it("Should increment _lostConnectionCount if isOpen and not _hasZeroCounter", function() {
+            websocketManager._lostConnectionCount = 5;
+            websocketManager.isOpen = true;
+            websocketManager._hasZeroCounter = false;
+
+            // Run
+            websocketManager._onError();
+
+            // Posttest
+            expect(websocketManager._lostConnectionCount).toEqual(6);
+        });
+
+        it("Should not increment _lostConnectionCount if isOpen", function() {
+            websocketManager._lostConnectionCount = 5;
+            websocketManager.isOpen = true;
+            websocketManager._hasZeroCounter = true;
+
+            // Run
+            websocketManager._onError();
+
+            // Posttest
+            expect(websocketManager._lostConnectionCount).toEqual(5);
         });
 
         it("Should call _scheduleReconnect if not isOpen", function() {
@@ -1048,8 +1077,9 @@ describe("The Websocket Socket Manager Class", function() {
             expect(websocketManager._lastTimestamp).toEqual("fred");
         });
 
-        it("Should trigger message event", function() {
+        it("Should trigger message event but not a connected event", function() {
             spyOn(websocketManager, "trigger");
+            websocketManager._hasZeroCounter = true;
             websocketManager._onMessage({data: JSON.stringify({
                 timestamp: "doh",
                 counter: 6,
@@ -1062,6 +1092,31 @@ describe("The Websocket Socket Manager Class", function() {
                 body: {hey: "ho"}
               }
             });
+
+            expect(websocketManager.trigger).not.toHaveBeenCalledWith('connected', {
+                verified: true,
+              });
+        });
+
+        it("Should trigger message event and a connected event", function() {
+            spyOn(websocketManager, "trigger");
+            websocketManager._hasZeroCounter = false;
+            websocketManager._onMessage({data: JSON.stringify({
+                timestamp: "doh",
+                counter: 0,
+                body: {hey: "ho"}
+            })});
+            expect(websocketManager.trigger).toHaveBeenCalledWith('message', {
+              data: {
+                timestamp: "doh",
+                counter: 0,
+                body: {hey: "ho"}
+              }
+            });
+
+            expect(websocketManager.trigger).toHaveBeenCalledWith('connected', {
+                verified: true,
+              });
         });
 
         it("Should call _reschedulePing", function() {

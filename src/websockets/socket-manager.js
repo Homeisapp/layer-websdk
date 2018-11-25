@@ -73,7 +73,7 @@ class SocketManager extends Root {
       this.connect();
     }, this);
 
-    this._lastTimestamp = Date.now();
+    this._lastTimestamp = 0;
   }
 
   /**
@@ -227,7 +227,7 @@ class SocketManager extends Root {
       this._removeSocketEvents();
       if (this._socket) {
         this._socket.close();
-        this._socket = null;
+        if (this._socket) this._socket = null;
       }
     } catch (e) {
       // No-op
@@ -246,12 +246,12 @@ class SocketManager extends Root {
   _onOpen() {
     this._clearConnectionFailed();
     if (this._isOpen()) {
-      this._lostConnectionCount = 0;
+      // this._lostConnectionCount = 0; // see _onMessage
       this._lastSkippedCounter = 0;
       this.isOpen = true;
-      this.trigger('connected');
+      this.trigger('connected', { verified: false });
       logger.debug('Websocket Connected');
-      if (this._hasZeroCounter && this._lastTimestamp) {
+      if (this._lastTimestamp) {
         this.trigger('replaying-events', { from: 'resync', why: 'reconnected' });
         this.resync(this._lastTimestamp);
       } else {
@@ -294,6 +294,11 @@ class SocketManager extends Root {
       this.trigger('schedule-reconnect', { from: '_onError', why: 'websocket failed to open' });
       this._scheduleReconnect();
     } else {
+      if (!this._hasZeroCounter) {
+        logger.error('An apparrently open connection has closed without any messages; ' +
+          'there may be a problem with the websocket services');
+        this._lostConnectionCount++;
+      }
       this._onSocketClose();
       this._socket.close();
       this._socket = null;
@@ -577,6 +582,12 @@ class SocketManager extends Root {
         this.resync(this._lastTimestamp);
       } else {
         this._lastTimestamp = new Date(msg.timestamp).getTime();
+
+        if (hasZero && isNewConnection) {
+          this.trigger('connected', {
+            verified: true,
+          });
+        }
       }
 
       this.trigger('message', {
@@ -666,6 +677,7 @@ class SocketManager extends Root {
   _onSocketClose() {
     logger.debug('Websocket closed');
     this.isOpen = false;
+    this._hasZeroCounter = false;
     if (!this._closing) {
       this.trigger('schedule-reconnect', { from: '_onSocketClose', why: 'Socket closed' });
       this._scheduleReconnect();
@@ -927,4 +939,3 @@ SocketManager._supportedEvents = [
 ].concat(Root._supportedEvents);
 Root.initClass.apply(SocketManager, [SocketManager, 'SocketManager']);
 module.exports = SocketManager;
-

@@ -10,8 +10,8 @@ const Utils = require('../client-utils');
 const logger = require('../logger');
 const LayerError = require('../layer-error');
 
-// Wait 15 seconds for a response and then give up
-const DELAY_UNTIL_TIMEOUT = 15 * 1000;
+// Wait 45 seconds for a response and then give up
+const DELAY_UNTIL_TIMEOUT = 45 * 1000;
 
 class WebsocketRequestManager {
   /**
